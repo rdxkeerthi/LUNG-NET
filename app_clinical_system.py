@@ -276,16 +276,16 @@ st.markdown("""
 swin_net = load_swin_classifier()
 
 # Sidebar: Parameters Configuration
-st.sidebar.markdown("### 🧬 MOLECULAR PROFILE")
+st.sidebar.markdown("### MOLECULAR PROFILE")
 egfr_str = st.sidebar.selectbox("EGFR Variant", ["Wild-Type (WT)", "Mutant (MUT)", "Unknown"], index=0)
 kras_str = st.sidebar.selectbox("KRAS Variant", ["Wild-Type (WT)", "Mutant (MUT)", "Unknown"], index=0)
 alk_str = st.sidebar.selectbox("ALK Variant", ["Wild-Type (WT)", "Mutant (MUT)", "Unknown"], index=0)
 
-st.sidebar.markdown("### 📋 PATIENT EXPOSURES")
+st.sidebar.markdown("### PATIENT EXPOSURES")
 age = st.sidebar.slider("Patient Age (Years)", 18, 100, 65)
 pack_years = st.sidebar.slider("Smoking History (Pack-Years)", 0.0, 150.0, 48.0, step=0.5)
 
-st.sidebar.markdown("### 🩻 VOLUMETRIC CT SCAN INGEST")
+st.sidebar.markdown("### VOLUMETRIC CT SCAN INGEST")
 uploaded_file = st.sidebar.file_uploader(
     "Upload Patient NIfTI ROI (.nii, .nii.gz)", 
     type=['nii', 'nii.gz']
@@ -294,7 +294,7 @@ uploaded_file = st.sidebar.file_uploader(
 # Patient scan ingestion
 if uploaded_file is not None:
     active_volume = load_and_transform_nifti(uploaded_file, uploaded_file.name)
-    st.sidebar.info("✓ Patient scan successfully loaded.")
+    st.sidebar.info("Patient scan successfully loaded.")
 else:
     # Initialize placeholder simulated volume to keep standby state clean
     if 'standby_volume' not in st.session_state:
@@ -315,7 +315,7 @@ try:
         kras=map_status[kras_str],
         alk=map_status[alk_str]
     )
-    st.sidebar.success("✓ Demographics Ingestion approved.")
+    st.sidebar.success("Demographics Ingestion approved.")
 except Exception as val_err:
     st.sidebar.error(f"Validation Ingest Error: {val_err}")
     st.stop()
@@ -334,7 +334,7 @@ if 'diagnostics_run' not in st.session_state:
 # COMPLETE INTERACTION BARRIER LAW
 # ----------------------------------------------------
 st.sidebar.markdown("---")
-st.sidebar.caption("💡 Execute diagnostics using all sidebar configurations explicitly:")
+st.sidebar.caption("Execute diagnostics using all sidebar configurations explicitly:")
 run_diagnostics = st.sidebar.button("Run Diagnostics Pipeline", use_container_width=True)
 
 if run_diagnostics:
@@ -394,7 +394,6 @@ if not st.session_state.diagnostics_run:
     # Render Clean Standby Non-computed View
     st.markdown(f"""
     <div class="diagnostic-standby">
-        <div style="font-size: 3rem; margin-bottom: 15px;">🩻</div>
         <strong>[DIAGNOSTICS PLATFORM STANDBY]</strong><br>
         Fill in all patient parameters in the sidebar, upload a NIfTI scan, and click<br>
         <span style="color: #38bdf8; font-weight: 600;">"Run Diagnostics Pipeline"</span> in the sidebar to execute multi-modal risk evaluation.
@@ -413,7 +412,7 @@ else:
     col_l, col_r = st.columns([1, 1.2], gap="large")
     
     with col_l:
-        st.markdown("### 🏥 Malignancy Stratification Profile")
+        st.markdown("### Malignancy Stratification Profile")
         
         risk_tier = report_dict["risk_tier"]
         if risk_tier == "LOW RISK":
@@ -434,13 +433,13 @@ else:
         # Clinical report presentation card
         st.markdown(f"""
         <div class="report-card">
-            <div class="report-title">🗂️ FLEISCHNER SOCIETY REPORT</div>
-            <pre style="white-space: pre-wrap; font-family: 'Outfit', sans-serif; font-size: 0.95rem; color: #e2e8f0; line-height: 1.5;">{report_dict["raw_text_report"]}</pre>
+            <div class="report-title">FLEISCHNER SOCIETY REPORT</div>
+            <pre style="white-space: pre-wrap; font-family: 'Inter', sans-serif; font-size: 0.95rem; color: #e2e8f0; line-height: 1.5;">{report_dict["raw_text_report"]}</pre>
         </div>
         """, unsafe_allow_html=True)
 
     with col_r:
-        st.markdown("### 🩻 3D Volumetric Raycast Explainability Map")
+        st.markdown("### 3D Volumetric Raycast Explainability Map")
         st.caption("Interactive Plotly volume rendering structural CT overlaid with Swin self-attention Grad-CAM hot zones:")
         
         # Interactive threshold sliders for real-time detailed peeling
@@ -455,7 +454,7 @@ else:
         
         st.markdown(f"""
         <div style="background: rgba(56, 189, 248, 0.05); border-left: 4px solid #38bdf8; border-radius: 8px; padding: 15px; margin-top: 15px; font-size: 0.9rem; color: #cbd5e1;">
-            <strong>✓ Telemetry:</strong> Inference evaluated completely on fallback device <code>{device}</code>. 
+            <strong>Telemetry:</strong> Inference evaluated completely on fallback device <code>{device}</code>. 
             Execution latency was <strong>{latency_ms:.2f} ms</strong>. Voxel grid spacing isotropic 1.0mm³.
         </div>
         """, unsafe_allow_html=True)
