@@ -82,7 +82,7 @@ def main():
     check_system_libraries()
     precompile_model_checkpoints()
     
-    app_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ui", "dashboard.py")
+    app_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "app_clinical_system.py")
     print(f"\n[LAUNCHING] Starting LUNG-NET Unified dashboard on {app_path}...\n")
     
     try:
