@@ -15,26 +15,55 @@ except ImportError:
     SCIPY_AVAILABLE = False
 
 
-def generate_synthetic_ct_nodule(radius=8.0, intensity_hu=140.0, background_hu=-780.0):
+def generate_synthetic_ct_nodule(radius=8.0, intensity_hu=120.0, background_hu=-850.0):
     """
-    Generates a simulated 3D isotropic lung nodule ROI (64x64x64)
-    modeled with realistic Hounsfield Unit density mappings.
+    Generates an advanced, highly-detailed 3D isotropic lung segment ROI (64x64x64)
+    containing a curved chest wall, low-density parenchymal air cavity, branching
+    pulmonary blood vessels, and a central spiculed malignant nodule.
     """
     grid_size = 64
-    x = np.linspace(-grid_size//2, grid_size//2, grid_size)
-    y = np.linspace(-grid_size//2, grid_size//2, grid_size)
-    z = np.linspace(-grid_size//2, grid_size//2, grid_size)
+    x = np.linspace(-32, 32, grid_size)
+    y = np.linspace(-32, 32, grid_size)
+    z = np.linspace(-32, 32, grid_size)
     X, Y, Z = np.meshgrid(x, y, z, indexing='ij')
     
-    dist = np.sqrt(X**2 + Y**2 + Z**2)
+    # 1. Start with parenchymal background air cavity (-850 HU)
+    volume_hu = np.random.normal(loc=background_hu, scale=40.0, size=(grid_size, grid_size, grid_size))
     
-    # Nodule Gaussian density distribution
-    nodule = np.exp(- (dist**2) / (2 * (radius**2))) * (intensity_hu - background_hu)
-    noise = np.random.normal(loc=background_hu, scale=75.0, size=(grid_size, grid_size, grid_size))
+    # 2. Add Curved High-Density Chest Wall on the outer edge (X > 20)
+    chest_wall_mask = X > 20
+    chest_wall_hu = np.random.normal(loc=180.0, scale=30.0, size=(grid_size, grid_size, grid_size))
+    volume_hu = np.where(chest_wall_mask, chest_wall_hu, volume_hu)
     
-    volume_hu = background_hu + nodule + noise
+    # 3. Add branching tubular blood vessels (represented by 3D distance equations)
+    # Vessel Branch 1 segment: diagonal Y-Z branch
+    dist_line1 = np.sqrt(X**2 + (Y - Z)**2 * 0.5)
+    vessel1_mask = (dist_line1 < 2.5) & (X < 18)
+    volume_hu = np.where(vessel1_mask, np.random.normal(loc=-50.0, scale=20.0, size=(grid_size, grid_size, grid_size)), volume_hu)
     
-    # Window scale according to lung parenchyma thresholds [-1000 HU to 400 HU]
+    # Vessel Branch 2 segment: diagonal X-Y branch
+    dist_line2 = np.sqrt((X - Y)**2 * 0.5 + Z**2)
+    vessel2_mask = (dist_line2 < 2.0) & (X < 18)
+    volume_hu = np.where(vessel2_mask, np.random.normal(loc=-50.0, scale=20.0, size=(grid_size, grid_size, grid_size)), volume_hu)
+    
+    # 4. Add the central Spiculed Malignant Nodule (the primary pathology)
+    dist_center = np.sqrt(X**2 + Y**2 + Z**2)
+    
+    # Generate high-frequency spicular radial lobes to model an invasive starburst shape
+    phi = np.arctan2(Y, X)
+    theta = np.arccos(np.clip(Z / np.clip(dist_center, 1e-5, 100.0), -1.0, 1.0))
+    
+    # Starburst spicular wave equation (8 lobulations on phi and theta coordinates)
+    spicules = 2.8 * np.sin(8 * phi) * np.cos(8 * theta)
+    spicular_dist = dist_center - spicules
+    
+    # Nodule solid core transition
+    nodule_intensity = np.random.normal(loc=intensity_hu, scale=25.0, size=(grid_size, grid_size, grid_size))
+    transition = np.clip((radius - spicular_dist) / 2.0, 0.0, 1.0)
+    
+    volume_hu = volume_hu + transition * (nodule_intensity - volume_hu)
+    
+    # 5. Normalization scale according to lung tissue window [-1000 HU to 400 HU]
     hu_min, hu_max = -1000.0, 400.0
     normalized = (volume_hu - hu_min) / (hu_max - hu_min)
     normalized = np.clip(normalized, 0.0, 1.0)

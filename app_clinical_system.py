@@ -20,114 +20,108 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom High-End Corporate Stylesheets
+# Custom Clinical Matte-Slate Stylesheets
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
     
     html, body, [class*="css"] {
-        font-family: 'Outfit', sans-serif;
+        font-family: 'Inter', sans-serif;
     }
     
     .stApp {
-        background: linear-gradient(135deg, #020617 0%, #0f172a 100%);
-        color: #f8fafc;
+        background-color: #0b0f19;
+        color: #e2e8f0;
     }
     
     [data-testid="stSidebar"] {
-        background-color: rgba(2, 6, 23, 0.98);
-        border-right: 1px solid rgba(255, 255, 255, 0.05);
+        background-color: #0d121f;
+        border-right: 1px solid #1e293b;
     }
     
     .cockpit-title-card {
-        background: rgba(15, 23, 42, 0.6);
-        backdrop-filter: blur(20px);
-        border: 1px solid rgba(255, 255, 255, 0.06);
-        border-radius: 20px;
-        padding: 25px;
+        background: #0d121f;
+        border: 1px solid #1e293b;
+        border-radius: 8px;
+        padding: 20px;
         margin-bottom: 25px;
         text-align: center;
-        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
     }
     
     .cockpit-header {
-        background: linear-gradient(90deg, #38bdf8 0%, #a855f7 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
+        color: #38bdf8;
         font-weight: 700;
-        font-size: 2.5rem;
-        letter-spacing: -1.5px;
+        font-size: 2.2rem;
+        letter-spacing: -1px;
     }
     
     .cockpit-subheader {
-        color: #94a3b8;
-        font-size: 1.05rem;
-        font-weight: 300;
+        color: #64748b;
+        font-size: 0.95rem;
+        font-weight: 400;
         letter-spacing: 0.5px;
         margin-top: 5px;
     }
     
     .diagnostic-standby {
-        background: rgba(15, 23, 42, 0.4);
-        border: 1px dashed rgba(255, 255, 255, 0.12);
-        border-radius: 16px;
+        background: #0d121f;
+        border: 1px dashed #334155;
+        border-radius: 8px;
         padding: 50px;
         text-align: center;
         color: #64748b;
-        font-size: 1.1rem;
+        font-size: 1.05rem;
         margin-top: 20px;
     }
     
     .report-card {
-        background: rgba(15, 23, 42, 0.85);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 16px;
-        padding: 25px;
+        background: #0d121f;
+        border: 1px solid #1e293b;
+        border-radius: 8px;
+        padding: 20px;
         margin-top: 20px;
-        box-shadow: 0 10px 25px rgba(0,0,0,0.5);
     }
     
     .report-title {
-        color: #38bdf8;
-        font-size: 1.25rem;
+        color: #0ea5e9;
+        font-size: 1.15rem;
         font-weight: 600;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        border-bottom: 1px solid #1e293b;
         padding-bottom: 8px;
         margin-bottom: 15px;
     }
     
     .risk-banner {
-        border-radius: 12px;
+        border-radius: 8px;
         padding: 20px;
         text-align: center;
         margin-bottom: 20px;
         font-weight: 600;
-        border: 1px solid rgba(255,255,255,0.08);
     }
     
     .risk-low {
-        background: linear-gradient(135deg, rgba(16, 185, 129, 0.12) 0%, rgba(4, 120, 87, 0.02) 100%);
-        border-color: rgba(16, 185, 129, 0.3);
-        color: #34d399;
+        background-color: #064e3b;
+        border: 1px solid #059669;
+        color: #a7f3d0;
     }
     
     .risk-moderate {
-        background: linear-gradient(135deg, rgba(245, 158, 11, 0.12) 0%, rgba(180, 83, 9, 0.02) 100%);
-        border-color: rgba(245, 158, 11, 0.3);
-        color: #fbbf24;
+        background-color: #78350f;
+        border: 1px solid #d97706;
+        color: #fef3c7;
     }
     
     .risk-high {
-        background: linear-gradient(135deg, rgba(239, 68, 68, 0.12) 0%, rgba(185, 28, 28, 0.02) 100%);
-        border-color: rgba(239, 68, 68, 0.3);
-        color: #f87171;
+        background-color: #7f1d1d;
+        border: 1px solid #dc2626;
+        color: #fee2e2;
     }
     
     .risk-val {
-        font-size: 3.5rem;
-        font-weight: 800;
+        font-size: 3rem;
+        font-weight: 700;
         margin: 5px 0;
-        letter-spacing: -2px;
+        letter-spacing: -1.5px;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -234,17 +228,17 @@ def render_plotly_3d_volume(volume, heatmap, isomin_ct=0.20, isomin_cam=0.35):
         caps=dict(x_show=False, y_show=False, z_show=False)  # CRITICAL: Disable box caps
     ))
     
-    # 2. Swin Attentions Grad-CAM heatmap (Jet thermal volume)
+    # 2. Swin Attentions Grad-CAM heatmap (Reds thermal volume)
     fig.add_trace(go.Volume(
         x=x_flat, y=y_flat, z=z_flat, value=heat_flat,
         isomin=isomin_cam, isomax=1.0, opacity=0.32,
-        surface_count=18, colorscale='Jet',
+        surface_count=18, colorscale='Reds',
         colorbar=dict(
             title=dict(
-                text="Attended Nodular Density",
-                font=dict(color='#94a3b8', size=11)
+                text="Pathology Attention Density",
+                font=dict(color='#64748b', size=11)
             ),
-            tickfont=dict(color='#94a3b8', size=10),
+            tickfont=dict(color='#64748b', size=10),
             len=0.7
         ),
         name='Swin Grad-CAM',
