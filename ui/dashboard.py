@@ -207,8 +207,10 @@ def render_plotly_3d_raycaster(volume, heatmap):
         isomin=0.32, isomax=1.0, opacity=0.32,
         surface_count=12, colorscale='Jet',
         colorbar=dict(
-            title="Grad-CAM Focus",
-            titlefont=dict(color='#94a3b8', size=11),
+            title=dict(
+                text="Grad-CAM Focus",
+                font=dict(color='#94a3b8', size=11)
+            ),
             tickfont=dict(color='#94a3b8', size=10),
             len=0.7
         ),
@@ -244,7 +246,9 @@ def plot_orthogonal_slices(volume, heatmap, slice_idx):
     z_val = np.clip(z_val, 0, 63)
     
     fig, axes = plt.subplots(1, 3, figsize=(15, 5.2))
-    fig.patch.set_facecolor('rgba(0,0,0,0)')
+    fig.patch.set_facecolor('none')
+    for ax in axes:
+        ax.set_facecolor('none')
     
     cmap_cam = 'jet'
     alpha = 0.42

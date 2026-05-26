@@ -6,6 +6,7 @@ __pycache__/
 # PyTorch weights (Can be dynamically generated on launch)
 weights.pth
 weights_swin.pth
+weights_cnn.pth
 
 # Streamlit logs & local configurations
 .streamlit/
