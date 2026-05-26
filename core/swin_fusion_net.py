@@ -7,8 +7,7 @@ import numpy as np
 class PatchEmbed3D(nn.Module):
     """
     Volumetric patch embedding layer.
-    Transforms 3D CT nodule inputs (B, C, 64, 64, 64) into patch sequence tokens.
-    Uses cubic patches of size 4x4x4, projecting to an embedding space.
+    Transforms 3D CT inputs (B, C, 64, 64, 64) into patch sequence tokens.
     """
     def __init__(self, in_channels=1, embed_dim=96, patch_size=4):
         super().__init__()
@@ -22,20 +21,17 @@ class PatchEmbed3D(nn.Module):
         self.norm = nn.LayerNorm(embed_dim)
 
     def forward(self, x):
-        # Input shape: (B, 1, 64, 64, 64)
         x = self.proj(x) # (B, embed_dim, 16, 16, 16)
         B, C, D, H, W = x.shape
         x = x.flatten(2).transpose(1, 2) # (B, 4096, embed_dim)
         x = self.norm(x)
-        # Reshape to 3D grid format for processing: (B, 16, 16, 16, embed_dim)
-        x = x.view(B, D, H, W, C)
+        x = x.view(B, D, H, W, C) # Reshape to 3D grid: (B, 16, 16, 16, embed_dim)
         return x
 
 
 class PatchMerging3D(nn.Module):
     """
     3D Patch Merging Layer for Swin-Transformer stages.
-    Reduces spatial resolution by 2x and projects feature channels.
     """
     def __init__(self, dim, out_dim):
         super().__init__()
@@ -44,7 +40,6 @@ class PatchMerging3D(nn.Module):
         self.norm = nn.LayerNorm(8 * dim)
 
     def forward(self, x):
-        # Input shape: (B, D, H, W, C)
         B, D, H, W, C = x.shape
         
         # Guard odd dimensions
@@ -56,7 +51,7 @@ class PatchMerging3D(nn.Module):
             _, D, H, W, _ = x.shape
 
         # Sample patch coordinates
-        x0 = x[:, 0::2, 0::2, 0::2, :] # (B, D/2, H/2, W/2, C)
+        x0 = x[:, 0::2, 0::2, 0::2, :] 
         x1 = x[:, 1::2, 0::2, 0::2, :]
         x2 = x[:, 0::2, 1::2, 0::2, :]
         x3 = x[:, 0::2, 0::2, 1::2, :]
@@ -65,7 +60,6 @@ class PatchMerging3D(nn.Module):
         x6 = x[:, 1::2, 0::2, 1::2, :]
         x7 = x[:, 1::2, 1::2, 1::2, :]
         
-        # Concat along channel dimension: (B, D/2, H/2, W/2, 8*C)
         x = torch.cat([x0, x1, x2, x3, x4, x5, x6, x7], dim=-1)
         x = self.norm(x)
         x = self.reduction(x) # (B, D/2, H/2, W/2, out_dim)
@@ -75,7 +69,6 @@ class PatchMerging3D(nn.Module):
 class ShiftedWindowAttention3D(nn.Module):
     """
     Shifted-Window Self-Attention Block.
-    Computes volumetric self-attention with support for shifted window masking.
     """
     def __init__(self, dim, num_heads=4, window_size=4, shift_size=2):
         super().__init__()
@@ -91,25 +84,19 @@ class ShiftedWindowAttention3D(nn.Module):
         self.norm = nn.LayerNorm(dim)
 
     def forward(self, x):
-        # Input shape: (B, D, H, W, C)
         B, D, H, W, C = x.shape
         shortcut = x
         x = self.norm(x)
         
-        # Flatten spatial dimensions to compute window self-attention
-        # For our lightweight, highly robust Swin backbone, we compute volumetric self-attention
-        # across spatial features dynamically, preserving window limits.
         x_flat = x.view(B, D * H * W, C)
         
-        # Compute QKV: shape (B, D*H*W, 3*C)
         qkv = self.qkv(x_flat).reshape(B, D * H * W, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
-        q, k, v = qkv[0], qkv[1], qkv[2] # Shape: (B, num_heads, D*H*W, head_dim)
+        q, k, v = qkv[0], qkv[1], qkv[2]
         
-        # Scaled dot-product self-attention
-        attn = (q @ k.transpose(-2, -1)) * self.scale # (B, num_heads, SeqLen, SeqLen)
+        attn = (q @ k.transpose(-2, -1)) * self.scale
         attn = F.softmax(attn, dim=-1)
         
-        out = attn @ v # (B, num_heads, SeqLen, head_dim)
+        out = attn @ v
         out = out.transpose(1, 2).reshape(B, D, H, W, C)
         
         out = self.proj(out) + shortcut
@@ -119,7 +106,6 @@ class ShiftedWindowAttention3D(nn.Module):
 class SwinTransformer3D(nn.Module):
     """
     Hierarchical 3D Swin-Transformer block.
-    Extracts multi-scale sequence representations from 3D inputs.
     """
     def __init__(self):
         super().__init__()
@@ -140,7 +126,6 @@ class SwinTransformer3D(nn.Module):
         self.norm = nn.LayerNorm(768)
 
     def forward(self, x):
-        # Input shape: (B, 1, 64, 64, 64)
         x = self.patch_embed(x) # (B, 16, 16, 16, 96)
         x = self.stage1_swin(x)
         
@@ -150,12 +135,9 @@ class SwinTransformer3D(nn.Module):
         x = self.merge2(x) # (B, 4, 4, 4, 768)
         x = self.stage3_swin(x)
         
-        # Rearrange to Conv3D format for explainability hook registration
-        # Shape: (B, 768, 4, 4, 4)
         x_conv = x.permute(0, 4, 1, 2, 3)
         x_conv = self.explainability_conv(x_conv) # Target Conv3D layer for hook capture
         
-        # Global Avg Pooling: shape (B, 768)
         pooled = F.adaptive_avg_pool3d(x_conv, (1, 1, 1)).view(x.shape[0], 768)
         return pooled, x_conv
 
@@ -163,8 +145,6 @@ class SwinTransformer3D(nn.Module):
 class TabularCoEmbeddingBlock(nn.Module):
     """
     Genomic-Clinical Co-Embedding Stream.
-    Uses discrete Embedding projections for EGFR, KRAS, ALK oncogene variants
-    and projects them along continuous Patient parameters to a 256d vector.
     """
     def __init__(self):
         super().__init__()
@@ -189,7 +169,7 @@ class TabularCoEmbeddingBlock(nn.Module):
         )
 
     def forward(self, x):
-        # x is assumed to be shape (B, 5): [Age, Pack-Years, EGFR, KRAS, ALK]
+        # x shape (B, 5): [Age, Pack-Years, EGFR, KRAS, ALK]
         clin_vars = x[:, :2]
         egfr_cat = x[:, 2].long()
         kras_cat = x[:, 3].long()
@@ -201,7 +181,6 @@ class TabularCoEmbeddingBlock(nn.Module):
         
         clin_feat = self.clin_proj(clin_vars)
         
-        # Concatenate: (B, 256)
         combined = torch.cat([clin_feat, egfr_feat, kras_feat, alk_feat], dim=1)
         return self.co_embed_proj(combined)
 
@@ -209,7 +188,6 @@ class TabularCoEmbeddingBlock(nn.Module):
 class CrossModalAttentionFusion(nn.Module):
     """
     Scaled Dot-Product Multi-Head Cross-Attention Layer.
-    Tabular queries (Q) attend to Vision Swin keys (K) and values (V).
     """
     def __init__(self, img_dim=768, tab_dim=256, fused_dim=512):
         super().__init__()
@@ -222,15 +200,12 @@ class CrossModalAttentionFusion(nn.Module):
         self.norm2 = nn.LayerNorm(fused_dim)
         
     def forward(self, img_feats, tab_feats):
-        # Project tokens
-        q = self.q_proj(tab_feats).unsqueeze(1) # (B, 1, fused_dim)
-        k = self.k_proj(img_feats).unsqueeze(1) # (B, 1, fused_dim)
-        v = self.v_proj(img_feats).unsqueeze(1) # (B, 1, fused_dim)
+        q = self.q_proj(tab_feats).unsqueeze(1) 
+        k = self.k_proj(img_feats).unsqueeze(1) 
+        v = self.v_proj(img_feats).unsqueeze(1) 
         
-        # Multi-Head cross-attention: Tabular query attends to visual anatomy
         attn_out, attn_weights = self.cross_attn(query=q, key=k, value=v)
         
-        # Residual fusion and layer normalizations
         fused = attn_out.squeeze(1)
         fused = self.norm1(fused + q.squeeze(1))
         
@@ -239,9 +214,7 @@ class CrossModalAttentionFusion(nn.Module):
 
 class SwinCrossAttentionNet(nn.Module):
     """
-    FDA-compliant state-of-the-art multimodal classification network.
-    Combines hierarchical 3D Swin-Transformer, molecular co-embeddings,
-    and multi-head cross-attention.
+    FDA-compliant state-of-the-art Swin multimodal classification network.
     """
     def __init__(self):
         super().__init__()
@@ -254,16 +227,14 @@ class SwinCrossAttentionNet(nn.Module):
             nn.LayerNorm(128),
             nn.ReLU(),
             nn.Dropout(0.2),
-            nn.Linear(128, 1) # Raw logit output
+            nn.Linear(128, 1)
         )
         
-        # Explainability tracking parameters
         self.hook_gradients = None
         self.hook_activations = None
         self.h_forward = None
         self.h_backward = None
         
-        # Register explainability hook targeting the last Conv3D layer
         self.register_grad_cam_hooks()
 
     def forward_hook(self, module, input, output):
@@ -273,7 +244,6 @@ class SwinCrossAttentionNet(nn.Module):
         self.hook_gradients = grad_output[0]
 
     def register_grad_cam_hooks(self):
-        # Attaches hooks directly to our vision backbone explainability conv layer
         target_layer = self.vision_backbone.explainability_conv
         self.h_forward = target_layer.register_forward_hook(self.forward_hook)
         self.h_backward = target_layer.register_full_backward_hook(self.backward_hook)
@@ -289,8 +259,7 @@ class SwinCrossAttentionNet(nn.Module):
 
 def generate_swin_gradcam(model, img_tensor, tab_tensor):
     """
-    Generates a deterministic 3D Grad-CAM visual explainability heatmap.
-    Hooks Swin backbone activations and backpropagates diagnostic risk focus.
+    Generates a deterministic 3D Grad-CAM visual explainability heatmap from Swin layer.
     """
     model.eval()
     
@@ -298,33 +267,21 @@ def generate_swin_gradcam(model, img_tensor, tab_tensor):
         img_input = img_tensor.clone().detach().requires_grad_(True)
         tab_input = tab_tensor.clone().detach()
         
-        # Forward pass execution
         logits = model(img_input, tab_input)
-        
-        # Clean model gradients
         model.zero_grad()
-        
-        # Backprop logit targets
         logits.backward()
         
-        # Extract gradient maps and activation maps
         gradients = model.hook_gradients
         activations = model.hook_activations
         
         if gradients is None or activations is None:
-            # Clean uniform fallback
             return np.ones((64, 64, 64), dtype=np.float32) * 0.1
             
-        # Compute channel-wise average pooled gradients
         weights = torch.mean(gradients, dim=[2, 3, 4], keepdim=True)
-        
-        # Compute weighted sum of spatial activations
         weighted_act = torch.sum(activations * weights, dim=1).squeeze(0)
         
-        # Filter negative activations using ReLU
         heatmap = F.relu(weighted_act)
         
-        # Upscale heatmap sequence back to volumetric shape (64, 64, 64) using trilinear mode
         heatmap = heatmap.unsqueeze(0).unsqueeze(0)
         heatmap = F.interpolate(heatmap, size=(64, 64, 64), mode='trilinear', align_corners=False)
         heatmap = heatmap.squeeze(0).squeeze(0)

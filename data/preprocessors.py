@@ -2,7 +2,6 @@ import os
 import tempfile
 import numpy as np
 
-# Import MONAI transformations
 try:
     from monai.transforms import (
         Compose,
@@ -26,9 +25,7 @@ except ImportError:
 
 def generate_hounsfield_pulmonary_nodule(radius=8.5, intensity_hu=130.0, background_hu=-760.0):
     """
-    Generates a high-fidelity simulated 3D Pulmonary CT Nodule ROI using Hounsfield Units (HU).
-    Lung parenchyma matches -760 HU, with a dense spherical nodule at 130 HU.
-    Enforces Hounsfield Unit scaling restricted to the pulmonary tissue spectrum (-1000 to 400 HU).
+    Generates simulated 3D CT ROI utilizing realistic Hounsfield Units (HU) bounds.
     """
     grid_size = 64
     x = np.linspace(-grid_size//2, grid_size//2, grid_size)
@@ -38,16 +35,13 @@ def generate_hounsfield_pulmonary_nodule(radius=8.5, intensity_hu=130.0, backgro
     
     dist = np.sqrt(X**2 + Y**2 + Z**2)
     
-    # Nodule density attenuation formula (Gaussian dropoff)
+    # Nodule profile (Gaussian dropoff)
     nodule_profile = np.exp(- (dist**2) / (2 * (radius**2))) * (intensity_hu - background_hu)
-    
-    # Generate background lung texture noise (HU values)
     background_noise = np.random.normal(loc=background_hu, scale=80.0, size=(grid_size, grid_size, grid_size))
     
-    # Fused volumetric model
     volume_hu = background_hu + nodule_profile + background_noise
     
-    # Min-max scale according to strict FDA diagnostic windows (-1000 to 400 HU)
+    # Min-max scale according to Hounsfield Unit pulmonary windowing limits (-1000 to 400 HU)
     hu_min, hu_max = -1000.0, 400.0
     normalized = (volume_hu - hu_min) / (hu_max - hu_min)
     normalized = np.clip(normalized, 0.0, 1.0)
@@ -57,9 +51,7 @@ def generate_hounsfield_pulmonary_nodule(radius=8.5, intensity_hu=130.0, backgro
 
 def process_clinical_ingestion(file_obj, filename):
     """
-    Isolated enterprise data pipeline executing isotropic resampling, intensity windowing,
-    and coordinate alignment of volumetric data inputs.
-    Uses dictionary-based MONAI transformers to ensure strict spatial constraints.
+    Resamples CT voxel spacing to isotropic 1.0mm^3 spacing and window scales intensities.
     """
     with tempfile.NamedTemporaryFile(suffix='.nii', delete=False) as tmp:
         tmp.write(file_obj.read())
@@ -75,8 +67,8 @@ def process_clinical_ingestion(file_obj, filename):
                 Spacingd(keys=keys, pixdim=(1.0, 1.0, 1.0), mode="bilinear"),
                 ScaleIntensityRanged(
                     keys=keys,
-                    a_min=-1000.0, # Lung minimum HU threshold
-                    a_max=400.0,   # Lung maximum HU threshold
+                    a_min=-1000.0, # Lung window minimum
+                    a_max=400.0,   # Lung window maximum
                     b_min=0.0,
                     b_max=1.0,
                     clip=True
@@ -86,13 +78,9 @@ def process_clinical_ingestion(file_obj, filename):
             
             payload = {"image": tmp_path}
             processed = transforms(payload)
-            
-            # Extract 3D tensor
-            volume = processed["image"].squeeze(0).numpy()
-            return np.clip(volume, 0.0, 1.0).astype(np.float32)
+            return np.clip(processed["image"].squeeze(0).numpy(), 0.0, 1.0).astype(np.float32)
             
         else:
-            # Fallback loading
             import nibabel as nib
             img = nib.load(tmp_path)
             data = img.get_fdata()
@@ -114,10 +102,9 @@ def process_clinical_ingestion(file_obj, filename):
             return np.clip(data, 0.0, 1.0).astype(np.float32)
             
     except Exception as err:
-        print(f"[INGESTION EXCEPTION] {err}. Reverting to standard Hounsfield simulation.")
+        print(f"[INGESTION EXCEPTION] {err}. Reverting to simulator.")
         return generate_hounsfield_pulmonary_nodule()
         
     finally:
-        # Guarantee removal of temporary filesystem streams
         if os.path.exists(tmp_path):
             os.unlink(tmp_path)

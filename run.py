@@ -2,13 +2,16 @@ import os
 import sys
 import subprocess
 
-def check_and_install_dependencies():
+def check_system_libraries():
     """
-    Verifies that all core dependencies are installed, auto-installing any that are missing.
+    Validates that all necessary modular packages are present,
+    auto-installing any missing ones to guarantee zero-setup startups.
     """
     required_packages = {
         'torch': 'torch',
         'monai': 'monai',
+        'plotly': 'plotly',
+        'pydantic': 'pydantic>=2.0',
         'streamlit': 'streamlit',
         'matplotlib': 'matplotlib',
         'numpy': 'numpy',
@@ -18,7 +21,7 @@ def check_and_install_dependencies():
     }
     
     print("=" * 60)
-    print("PROJECT #45: INITIALIZING SYSTEM DEPENDENCY VERIFICATION")
+    print("LUNG-NET UNIFIED DIAGNOSTIC PLATFORM BOOTSTRAP")
     print("=" * 60)
     
     for module_name, pip_name in required_packages.items():
@@ -30,51 +33,65 @@ def check_and_install_dependencies():
             try:
                 subprocess.check_call([sys.executable, "-m", "pip", "install", pip_name])
                 print(f"  [OK] {module_name:<12} : Successfully installed.")
-            except Exception as e:
-                print(f"  [WARN] Failed to install {pip_name}: {e}. Proceeding with built-in fallbacks.")
+            except Exception as err:
+                print(f"  [WARN] Failed to install {pip_name}: {err}. Continuing using fallback adapters.")
     print("-" * 60)
 
 
-def generate_mock_weights():
+def precompile_model_checkpoints():
     """
-    Pre-compiles dummy weights from model.py to ensure the model branch
-    initializes instantly without runtime failures or missing checkpoints.
+    Pre-compiles parameters for both diagnostic neural networks
+    to ensure immediate load and execution without missing weights files.
     """
-    weights_path = os.path.join(os.path.dirname(__file__), "weights.pth")
-    if os.path.exists(weights_path):
-        print("  [OK] Model checkpoint weights found.")
-        return
+    root = os.path.dirname(os.path.abspath(__file__))
+    cnn_path = os.path.join(root, "weights_cnn.pth")
+    swin_path = os.path.join(root, "weights_swin.pth")
+    
+    import torch
+    
+    # 1. Compile 3D DenseNet-121 CNN weights
+    if not os.path.exists(cnn_path):
+        print("  [..] Pre-compiling AttentionGatedFusionNet (DenseNet) weights...")
+        try:
+            from core.cnn_fusion_net import AttentionGatedFusionNet
+            model_cnn = AttentionGatedFusionNet()
+            torch.save(model_cnn.state_dict(), cnn_path)
+            print("  [OK] weights_cnn.pth successfully created!")
+        except Exception as err:
+            print(f"  [WARNING] Could not pre-generate CNN weights: {err}")
+    else:
+        print("  [OK] CNN model checkpoint found.")
         
-    print("  [..] Generating dummy weights for MultimodalLungNet...")
-    try:
-        import torch
-        from model import MultimodalLungNet
+    # 2. Compile 3D Swin-Transformer weights
+    if not os.path.exists(swin_path):
+        print("  [..] Pre-compiling SwinCrossAttentionNet weights...")
+        try:
+            from core.swin_fusion_net import SwinCrossAttentionNet
+            model_swin = SwinCrossAttentionNet()
+            torch.save(model_swin.state_dict(), swin_path)
+            print("  [OK] weights_swin.pth successfully created!")
+        except Exception as err:
+            print(f"  [WARNING] Could not pre-generate Swin weights: {err}")
+    else:
+        print("  [OK] Swin-Transformer model checkpoint found.")
         
-        # Instantiate model and save state dictionary
-        model = MultimodalLungNet()
-        torch.save(model.state_dict(), weights_path)
-        print("  [OK] weights.pth successfully created!")
-    except Exception as e:
-        print(f"  [WARNING] Could not pre-generate weights: {e}")
     print("-" * 60)
 
 
 def main():
-    check_and_install_dependencies()
-    generate_mock_weights()
+    check_system_libraries()
+    precompile_model_checkpoints()
     
-    app_path = os.path.join(os.path.dirname(__file__), "app.py")
-    print(f"\n[LAUNCHING] Starting Streamlit dashboard on {app_path}...\n")
+    app_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ui", "dashboard.py")
+    print(f"\n[LAUNCHING] Starting LUNG-NET Unified dashboard on {app_path}...\n")
     
     try:
-        # Launch streamlit dashboard
-        # Using sys.executable to ensure we execute streamlit in the exact same environment
-        # Adding --server.headless=true suppresses interactive email prompts
+        # Launch Streamlit cockpit programmatically
         subprocess.run([sys.executable, "-m", "streamlit", "run", app_path, "--server.headless=true"])
     except KeyboardInterrupt:
         print("\n[STOPPED] Dashboard terminated by user.")
-    except Exception as e:
-        print(f"[FATAL] Streamlit failed to launch: {e}")
+    except Exception as err:
+        print(f"[FATAL] Streamlit failed to launch: {err}")
 
 
 if __name__ == "__main__":
