@@ -15,11 +15,13 @@ except ImportError:
     SCIPY_AVAILABLE = False
 
 
-def generate_synthetic_ct_nodule(radius=8.0, intensity_hu=120.0, background_hu=-850.0):
+def generate_synthetic_ct_nodule(radius=8.0, intensity_hu=150.0, background_hu=-700.0):
     """
-    Generates an advanced, highly-detailed 3D isotropic lung segment ROI (64x64x64)
-    containing a curved chest wall, low-density parenchymal air cavity, branching
-    pulmonary blood vessels, and a central spiculed malignant nodule.
+    Generates a highly-realistic, anatomically structured 3D isotropic lung lobe segment (64x64x64)
+    containing Left & Right Lung Lobes, a medial Cardiac Notch inside the Left Lobe, a central
+    Trachea & main Bronchus tree system, low-density lung parenchyma air cavities (-700 HU),
+    and a localized spiculed malignant nodule pathology (+150 HU) situated inside the upper right lobe
+    surrounded by GGO (ground-glass opacity) infectious infiltrate.
     """
     grid_size = 64
     x = np.linspace(-32, 32, grid_size)
@@ -27,43 +29,83 @@ def generate_synthetic_ct_nodule(radius=8.0, intensity_hu=120.0, background_hu=-
     z = np.linspace(-32, 32, grid_size)
     X, Y, Z = np.meshgrid(x, y, z, indexing='ij')
     
-    # 1. Start with parenchymal background air cavity (-850 HU)
-    volume_hu = np.random.normal(loc=background_hu, scale=40.0, size=(grid_size, grid_size, grid_size))
+    # 1. Start with completely empty vacuum space background (-1000 HU)
+    volume_hu = np.ones((grid_size, grid_size, grid_size)) * -1000.0
     
-    # 2. Add Curved High-Density Chest Wall on the outer edge (X > 20)
-    chest_wall_mask = X > 20
-    chest_wall_hu = np.random.normal(loc=180.0, scale=30.0, size=(grid_size, grid_size, grid_size))
-    volume_hu = np.where(chest_wall_mask, chest_wall_hu, volume_hu)
+    # 2. Add Left and Right Lung Lobes (low-density air parenchyma -700 HU)
+    # Lungs taper at the apex (upper Z) and widen at the base (lower Z)
+    z_norm = np.clip((26 - Z) / 52, 0.0, 1.0)
+    taper_r = 0.35 + 0.85 * z_norm  # Taper scale factor along height
     
-    # 3. Add branching tubular blood vessels (represented by 3D distance equations)
-    # Vessel Branch 1 segment: diagonal Y-Z branch
-    dist_line1 = np.sqrt(X**2 + (Y - Z)**2 * 0.5)
-    vessel1_mask = (dist_line1 < 2.5) & (X < 18)
-    volume_hu = np.where(vessel1_mask, np.random.normal(loc=-50.0, scale=20.0, size=(grid_size, grid_size, grid_size)), volume_hu)
+    # Right Lobe (centered at X = -13, Y = 1, Z = -2)
+    right_lobe_dist = ((X + 13) / (11.5 * taper_r))**2 + ((Y - 1) / (14.5 * taper_r))**2 + ((Z + 2) / 22.0)**2
+    # Left Lobe (centered at X = 13, Y = 1, Z = -2)
+    left_lobe_dist = ((X - 13) / (10.5 * taper_r))**2 + ((Y - 1) / (14.5 * taper_r))**2 + ((Z + 2) / 22.0)**2
     
-    # Vessel Branch 2 segment: diagonal X-Y branch
-    dist_line2 = np.sqrt((X - Y)**2 * 0.5 + Z**2)
-    vessel2_mask = (dist_line2 < 2.0) & (X < 18)
-    volume_hu = np.where(vessel2_mask, np.random.normal(loc=-50.0, scale=20.0, size=(grid_size, grid_size, grid_size)), volume_hu)
+    # Left Lobe Cardiac Notch: sphere subtraction in lower medial posterior region
+    cardiac_notch = ((X - 6.5) / 8.5)**2 + ((Y - 6.0) / 8.5)**2 + ((Z + 6.0) / 9.5)**2
     
-    # 4. Add the central Spiculed Malignant Nodule (the primary pathology)
-    dist_center = np.sqrt(X**2 + Y**2 + Z**2)
+    # Build lung parenchymal masks
+    right_lung_mask = (right_lobe_dist <= 1.0) & (Z > -22) & (Z < 24)
+    left_lung_mask = (left_lobe_dist <= 1.0) & (Z > -22) & (Z < 24) & (cardiac_notch > 0.85)
     
-    # Generate high-frequency spicular radial lobes to model an invasive starburst shape
-    phi = np.arctan2(Y, X)
-    theta = np.arccos(np.clip(Z / np.clip(dist_center, 1e-5, 100.0), -1.0, 1.0))
+    # Fill lung parenchyma with visible density (-700 HU) with minor noise
+    parenchyma_hu = np.random.normal(loc=background_hu, scale=15.0, size=(grid_size, grid_size, grid_size))
+    volume_hu = np.where(right_lung_mask | left_lung_mask, parenchyma_hu, volume_hu)
     
-    # Starburst spicular wave equation (8 lobulations on phi and theta coordinates)
-    spicules = 2.8 * np.sin(8 * phi) * np.cos(8 * theta)
-    spicular_dist = dist_center - spicules
+    # 3. Add branching trachea and bronchial airways (air density -950 HU with high-density walls +100 HU)
+    # Trachea tube (centered at X=0, Y=-2, running down from Z=24 to Z=6)
+    trachea_dist = np.sqrt(X**2 + (Y + 2.0)**2)
+    trachea_air = (trachea_dist < 1.8) & (Z >= 6) & (Z < 26)
+    trachea_wall = (trachea_dist >= 1.8) & (trachea_dist < 2.8) & (Z >= 6) & (Z < 26)
+    
+    # Right Main Bronchus tube (connecting trachea bifurcation at Z=6 to right lung)
+    t1 = np.clip((6 - Z) / 10.0, 0.0, 1.0)
+    bronch_r_dist = np.sqrt((X - (-10.0 * t1))**2 + (Y - (-2.0 + 2.0 * t1))**2 + (Z - (6 - 10.0 * t1))**2)
+    bronch_r_air = (bronch_r_dist < 1.2) & (Z < 6) & (Z > -6)
+    bronch_r_wall = (bronch_r_dist >= 1.2) & (bronch_r_dist < 2.0) & (Z < 6) & (Z > -6)
+    
+    # Left Main Bronchus tube (connecting trachea bifurcation at Z=6 to left lung)
+    t2 = np.clip((6 - Z) / 10.0, 0.0, 1.0)
+    bronch_l_dist = np.sqrt((X - (10.0 * t2))**2 + (Y - (-2.0 + 2.0 * t2))**2 + (Z - (6 - 10.0 * t2))**2)
+    bronch_l_air = (bronch_l_dist < 1.2) & (Z < 6) & (Z > -6)
+    bronch_l_wall = (bronch_l_dist >= 1.2) & (bronch_l_dist < 2.0) & (Z < 6) & (Z > -6)
+    
+    # Inject Airway Walls (+100 HU)
+    volume_hu = np.where(trachea_wall | bronch_r_wall | bronch_l_wall, np.random.normal(loc=100.0, scale=15.0, size=(grid_size, grid_size, grid_size)), volume_hu)
+    # Inject Airway Lumens (-950 HU)
+    volume_hu = np.where(trachea_air | bronch_r_air | bronch_l_air, -950.0, volume_hu)
+    
+    # 4. Add the localized spiculed malignant nodule (situated inside right lung parenchyma)
+    # Upper-middle right lobe position: X=-12, Y=-2, Z=8
+    nodule_center = np.array([-12.0, -2.0, 8.0])
+    X_rel = X - nodule_center[0]
+    Y_rel = Y - nodule_center[1]
+    Z_rel = Z - nodule_center[2]
+    
+    dist_nodule = np.sqrt(X_rel**2 + Y_rel**2 + Z_rel**2)
+    
+    # Starburst spicular wave equation (8 lobulations on spherical coordinates)
+    phi = np.arctan2(Y_rel, X_rel)
+    theta = np.arccos(np.clip(Z_rel / np.clip(dist_nodule, 1e-5, 100.0), -1.0, 1.0))
+    
+    spicules = 2.5 * np.sin(8 * phi) * np.cos(8 * theta)
+    spicular_dist = dist_nodule - spicules
     
     # Nodule solid core transition
     nodule_intensity = np.random.normal(loc=intensity_hu, scale=25.0, size=(grid_size, grid_size, grid_size))
-    transition = np.clip((radius - spicular_dist) / 2.0, 0.0, 1.0)
+    nodule_transition = np.clip((radius - spicular_dist) / 2.0, 0.0, 1.0)
     
-    volume_hu = volume_hu + transition * (nodule_intensity - volume_hu)
+    # 5. Add surrounding Ground-Glass Opacity (GGO) / Infectious consolidation infiltrate
+    infiltrate_density = np.random.normal(loc=-180.0, scale=35.0, size=(grid_size, grid_size, grid_size))
+    infiltrate_strength = np.exp(-(dist_nodule**2) / (2.0 * (11.0**2))) # Gaussian distribution
+    infiltrate_strength = np.clip(infiltrate_strength * 0.70, 0.0, 1.0)
     
-    # 5. Normalization scale according to lung tissue window [-1000 HU to 400 HU]
+    # Apply infiltrate and nodule core within the right lung parenchyma boundaries
+    volume_hu = np.where(right_lung_mask, volume_hu + infiltrate_strength * (infiltrate_density - volume_hu), volume_hu)
+    volume_hu = volume_hu + nodule_transition * (nodule_intensity - volume_hu)
+    
+    # 6. Normalization scale according to lung tissue window [-1000 HU to 400 HU]
     hu_min, hu_max = -1000.0, 400.0
     normalized = (volume_hu - hu_min) / (hu_max - hu_min)
     normalized = np.clip(normalized, 0.0, 1.0)
