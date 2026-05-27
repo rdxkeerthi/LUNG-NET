@@ -10,7 +10,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from domain_rules import ClinicalDataModel, GeneticsVariant, ClinicalRecommendationEngine
 from swin_attention_net import CrossModalAttentionSwinNet, generate_3d_gradcam, device, TORCH_AVAILABLE
-from medical_loader import load_and_transform_nifti, generate_synthetic_ct_nodule
+from medical_loader import load_and_transform_nifti, generate_synthetic_ct_nodule, process_2d_ct_scan
 
 try:
     import torch
@@ -239,64 +239,180 @@ def apply_boundary_fade(arr):
     return arr * mask
 
 
-def render_plotly_3d_volume(volume, heatmap, isomin_ct=0.20, isomin_cam=0.35):
+def render_plotly_3d_volume(volume, heatmap, isomin_ct=0.20, isomin_cam=0.35, visual_style="Premium Cyber-Glow"):
     """
     Renders high-performance interactive 3D volumetric raycasting using Plotly go.Volume.
-    Ensures perfect transparent boundaries by disabling outer caps and applying smooth border tapers.
+    Separates structural parenchyma, vascular/bronchial trees, and infected tumor cores into 
+    distinct, clean, beautifully colored layers representing realistic human lung anatomy,
+    completely free of spherical clipping or artificial bounding box limits.
+    Supports visual styles: "Premium Cyber-Glow", "Classic Clinical", and "Grad-CAM XAI".
     """
-    # Apply spatial fading mask to guarantee 100% border transparency
-    volume_faded = apply_boundary_fade(volume)
-    heatmap_faded = apply_boundary_fade(heatmap)
-    
     # Downsample by 2 to secure fast browser load and rotation responses
-    vol_ds = volume_faded[::2, ::2, ::2]
-    heat_ds = heatmap_faded[::2, ::2, ::2]
+    vol_ds = volume[::2, ::2, ::2]
+    heat_ds = heatmap[::2, ::2, ::2]
     sz = vol_ds.shape[0]
     
+    # 1. Segment the Lung Parenchyma
+    lung_clean = np.where((vol_ds >= 0.12) & (vol_ds <= 0.48), vol_ds, 0.0)
+    
+    # 2. Segment the Branching Pulmonary Vessels & Airways
+    vessel_clean = np.where((vol_ds >= 0.55) & (vol_ds <= 0.80), vol_ds, 0.0)
+    
+    # 3. Segment the High-Risk Infected Tumor Core
+    tumor_clean = np.where(vol_ds > 0.80, vol_ds, 0.0)
+
     x, y, z = np.mgrid[0:sz, 0:sz, 0:sz]
     x_flat, y_flat, z_flat = x.flatten(), y.flatten(), z.flatten()
-    vol_flat = vol_ds.flatten()
+    
+    lung_flat = lung_clean.flatten()
+    vessel_flat = vessel_clean.flatten()
+    tumor_flat = tumor_clean.flatten()
     heat_flat = heat_ds.flatten()
     
     fig = go.Figure()
     
-    # 1. Structural Pulmonary CT Nodule & Anatomy (Grayscale volume)
-    fig.add_trace(go.Volume(
-        x=x_flat, y=y_flat, z=z_flat, value=vol_flat,
-        isomin=isomin_ct, isomax=1.0, opacity=0.06,
-        surface_count=20, colorscale='gray',
-        showscale=False, name='Structural CT',
-        caps=dict(x_show=False, y_show=False, z_show=False)  # CRITICAL: Disable box caps
-    ))
-    
-    # 2. Swin Attentions Grad-CAM heatmap (Reds thermal volume)
-    fig.add_trace(go.Volume(
-        x=x_flat, y=y_flat, z=z_flat, value=heat_flat,
-        isomin=isomin_cam, isomax=1.0, opacity=0.32,
-        surface_count=18, colorscale='Reds',
-        colorbar=dict(
-            title=dict(
-                text="Pathology Attention Density",
-                font=dict(color='#64748b', size=11)
+    if visual_style == "Premium Cyber-Glow":
+        # Trace 1: Semi-Transparent Cyber-Teal Lung Outer Shell
+        fig.add_trace(go.Volume(
+            x=x_flat, y=y_flat, z=z_flat, value=lung_flat,
+            isomin=float(isomin_ct), isomax=0.48, opacity=0.38,
+            surface_count=15, 
+            colorscale=[
+                [0.0, 'rgba(20,184,166,0)'],
+                [0.10, 'rgba(20,184,166,0.30)'],
+                [0.6, 'rgba(13,148,136,0.60)'],
+                [1.0, 'rgba(45,212,191,0.75)']
+            ],
+            showscale=False, name='Real Lung Lobes',
+            caps=dict(x_show=False, y_show=False, z_show=False)
+        ))
+        
+        # Trace 2: Sky-Blue Branching Vasculature (Vessels & Airways)
+        fig.add_trace(go.Volume(
+            x=x_flat, y=y_flat, z=z_flat, value=vessel_flat,
+            isomin=0.55, isomax=0.80, opacity=0.55,
+            surface_count=9,
+            colorscale=[
+                [0.0, 'rgba(56,189,248,0)'],
+                [0.10, 'rgba(56,189,248,0.45)'],
+                [0.6, 'rgba(14,165,233,0.70)'],
+                [1.0, 'rgba(255,255,255,0.90)']
+            ],
+            showscale=False, name='Airway & Vessels',
+            caps=dict(x_show=False, y_show=False, z_show=False)
+        ))
+        
+        # Trace 3: Highly Highlighted Magma Infected Tumor Core (Glowing orange-yellow-red)
+        fig.add_trace(go.Volume(
+            x=x_flat, y=y_flat, z=z_flat, value=tumor_flat,
+            isomin=0.80, isomax=0.88, opacity=0.98,
+            surface_count=18,
+            colorscale=[
+                [0.0, 'rgba(239,68,68,0)'],
+                [0.10, 'rgba(239,68,68,0.92)'],
+                [0.50, 'rgba(249,115,22,0.95)'],
+                [1.0, 'rgba(253,224,71,0.98)']
+            ],
+            showscale=False, name='Infected Tumor Core',
+            caps=dict(x_show=False, y_show=False, z_show=False)
+        ))
+        
+    elif visual_style == "Classic Clinical":
+        # Trace 1: Grayscale Lung Outer Shell
+        fig.add_trace(go.Volume(
+            x=x_flat, y=y_flat, z=z_flat, value=lung_flat,
+            isomin=float(isomin_ct), isomax=0.48, opacity=0.32,
+            surface_count=12, 
+            colorscale=[
+                [0.0, 'rgba(240,240,240,0)'],
+                [0.10, 'rgba(180,180,180,0.25)'],
+                [0.6, 'rgba(120,120,120,0.50)'],
+                [1.0, 'rgba(80,80,80,0.70)']
+            ],
+            showscale=False, name='Real Lung Lobes',
+            caps=dict(x_show=False, y_show=False, z_show=False)
+        ))
+        
+        # Trace 2: Light Gray Vasculature
+        fig.add_trace(go.Volume(
+            x=x_flat, y=y_flat, z=z_flat, value=vessel_flat,
+            isomin=0.55, isomax=0.80, opacity=0.50,
+            surface_count=8,
+            colorscale=[
+                [0.0, 'rgba(200,200,200,0)'],
+                [0.10, 'rgba(160,160,160,0.45)'],
+                [1.0, 'rgba(245,245,245,0.85)']
+            ],
+            showscale=False, name='Airway & Vessels',
+            caps=dict(x_show=False, y_show=False, z_show=False)
+        ))
+        
+        # Trace 3: Solid Clinical Red Nodule Core
+        fig.add_trace(go.Volume(
+            x=x_flat, y=y_flat, z=z_flat, value=tumor_flat,
+            isomin=0.80, isomax=0.88, opacity=0.95,
+            surface_count=14,
+            colorscale=[
+                [0.0, 'rgba(220,100,100,0)'],
+                [0.10, 'rgba(200,50,50,0.90)'],
+                [1.0, 'rgba(150,0,0,0.95)']
+            ],
+            showscale=False, name='Infected Tumor Core',
+            caps=dict(x_show=False, y_show=False, z_show=False)
+        ))
+        
+    elif visual_style == "Grad-CAM XAI":
+        # Trace 1: Cool light-gray outer shell to provide context for the heatmap
+        fig.add_trace(go.Volume(
+            x=x_flat, y=y_flat, z=z_flat, value=lung_flat,
+            isomin=float(isomin_ct), isomax=0.48, opacity=0.28,
+            surface_count=12, 
+            colorscale=[
+                [0.0, 'rgba(148,163,184,0)'],
+                [0.10, 'rgba(148,163,184,0.20)'],
+                [0.6, 'rgba(148,163,184,0.45)'],
+                [1.0, 'rgba(148,163,184,0.65)']
+            ],
+            showscale=False, name='Real Lung Lobes',
+            caps=dict(x_show=False, y_show=False, z_show=False)
+        ))
+        
+        # Trace 4: Swin-Transformer Pathology Attention Heatmap (Glowing Orange/Yellow Aura)
+        fig.add_trace(go.Volume(
+            x=x_flat, y=y_flat, z=z_flat, value=heat_flat,
+            isomin=float(isomin_cam), isomax=1.0, opacity=0.45,
+            surface_count=12,
+            colorscale=[
+                [0.0, 'rgba(249,115,22,0)'],
+                [0.4, 'rgba(249,115,22,0.45)'],
+                [0.8, 'rgba(239,68,68,0.75)'],
+                [1.0, 'rgba(253,224,71,0.90)']
+            ],
+            colorbar=dict(
+                title=dict(
+                    text="Pathology Attention Density",
+                    font=dict(color='#64748b', size=11)
+                ),
+                tickfont=dict(color='#64748b', size=10),
+                len=0.7
             ),
-            tickfont=dict(color='#64748b', size=10),
-            len=0.7
-        ),
-        name='Swin Grad-CAM',
-        caps=dict(x_show=False, y_show=False, z_show=False)  # CRITICAL: Disable box caps
-    ))
+            name='Swin Grad-CAM Attention',
+            caps=dict(x_show=False, y_show=False, z_show=False)
+        ))
+        
+    bg_color = 'rgba(0,0,0,1)' if visual_style == "Premium Cyber-Glow" else 'rgba(11,14,23,1)'
     
     fig.update_layout(
         scene=dict(
             xaxis=dict(visible=False),
             yaxis=dict(visible=False),
             zaxis=dict(visible=False),
-            bgcolor='rgba(0,0,0,0)',
+            bgcolor=bg_color,
             camera=dict(eye=dict(x=1.6, y=1.6, z=1.4))
         ),
         margin=dict(l=0, r=0, t=0, b=0),
-        paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(0,0,0,0)',
+        paper_bgcolor=bg_color,
+        plot_bgcolor=bg_color,
         height=580
     )
     
@@ -326,16 +442,20 @@ st.sidebar.markdown("### PATIENT EXPOSURES")
 age = st.sidebar.slider("Patient Age (Years)", 18, 100, 65)
 pack_years = st.sidebar.slider("Smoking History (Pack-Years)", 0.0, 150.0, 48.0, step=0.5)
 
-st.sidebar.markdown("### VOLUMETRIC CT SCAN INGEST")
+st.sidebar.markdown("### VOLUMETRIC / 2D SCAN INGEST")
 uploaded_file = st.sidebar.file_uploader(
-    "Upload Patient NIfTI ROI (.nii, .nii.gz)", 
-    type=['nii', 'nii.gz']
+    "Upload Patient Scan (.nii, .nii.gz, .png, .jpg, .jpeg)", 
+    type=['nii', 'nii.gz', 'png', 'jpg', 'jpeg']
 )
 
 # Patient scan ingestion
 if uploaded_file is not None:
-    active_volume = load_and_transform_nifti(uploaded_file, uploaded_file.name)
-    st.sidebar.info("Patient scan successfully loaded.")
+    file_ext = uploaded_file.name.split('.')[-1].lower()
+    if file_ext in ['png', 'jpg', 'jpeg']:
+        st.sidebar.info("Patient 2D scan successfully uploaded.")
+    else:
+        active_volume = load_and_transform_nifti(uploaded_file, uploaded_file.name)
+        st.sidebar.info("Patient NIfTI scan successfully loaded.")
 else:
     # Initialize placeholder simulated volume to keep standby state clean
     if 'standby_volume' not in st.session_state:
@@ -384,8 +504,31 @@ if run_diagnostics:
     st.toast("Executing Advanced Multi-Modal Inference...")
     t_start = time.perf_counter()
     
-    # Dynamically regenerate simulation volume if no file was uploaded
-    if uploaded_file is None:
+    # Process 2D CT Scan, Volumetric NIfTI scan, or Simulated fallback
+    if uploaded_file is not None:
+        file_ext = uploaded_file.name.split('.')[-1].lower()
+        if file_ext in ['png', 'jpg', 'jpeg']:
+            overlay_bytes, metrics_2d, morphed_volume = process_2d_ct_scan(
+                uploaded_file,
+                age=patient_record.age,
+                smoking_pack_years=patient_record.smoking_pack_years,
+                egfr=int(patient_record.egfr == GeneticsVariant.MUTANT),
+                kras=int(patient_record.kras == GeneticsVariant.MUTANT),
+                alk=int(patient_record.alk == GeneticsVariant.MUTANT)
+            )
+            active_volume = morphed_volume
+            st.session_state.overlay_bytes = overlay_bytes
+            st.session_state.metrics_2d = metrics_2d
+            st.session_state.is_2d_upload = True
+        else:
+            active_volume = load_and_transform_nifti(uploaded_file, uploaded_file.name)
+            st.session_state.is_2d_upload = False
+            st.session_state.overlay_bytes = None
+            st.session_state.metrics_2d = None
+    else:
+        st.session_state.is_2d_upload = False
+        st.session_state.overlay_bytes = None
+        st.session_state.metrics_2d = None
         active_volume = generate_synthetic_ct_nodule(
             age=patient_record.age,
             smoking_pack_years=patient_record.smoking_pack_years,
@@ -493,25 +636,100 @@ else:
     ])
     
     with tab_workstation:
-        st.markdown("### Interactive 3D Workstation & Pathological Localization")
-        st.caption("Volumetric rendering showing mathematically simulated left/right lung contours and bronchial airway trees. Adjust thresholds to peel/focus:")
-        
-        # Interactive threshold sliders for real-time detailed peeling
-        col_t1, col_t2 = st.columns(2)
-        with col_t1:
-            isomin_ct = st.slider("CT Iso-Surface Threshold", 0.05, 0.95, 0.18, step=0.01, key="ct_slider")
-        with col_t2:
-            isomin_cam = st.slider("Attention Focus Threshold", 0.05, 0.95, 0.35, step=0.01, key="cam_slider")
+        if st.session_state.get('is_2d_upload', False) and st.session_state.get('overlay_bytes') is not None:
+            # 2D Scan + 3D Reconstruction side-by-side layout
+            col_left, col_right = st.columns([1, 1.3], gap="large")
             
-        fig_raycast = render_plotly_3d_volume(active_volume, gradcam_heatmap, isomin_ct, isomin_cam)
-        st.plotly_chart(fig_raycast, use_container_width=True)
-        
-        st.markdown(f"""
-        <div style="background: rgba(6, 182, 212, 0.05); border-left: 4px solid #06b6d4; border-radius: 8px; padding: 15px; margin-top: 15px; font-size: 0.9rem; color: #cbd5e1;">
-            <strong>Workstation Telemetry:</strong> Volumetric CT scan models two distinct lung lobes and trachea bifurcation. 
-            Localized starburst infection highlighted under Swin-Transformer Self-Attention layer. Execution latency: <strong>{latency_ms:.2f} ms</strong>.
-        </div>
-        """, unsafe_allow_html=True)
+            with col_left:
+                st.markdown("### 2D Scan Diagnostic Analyst")
+                st.caption("Advanced clinical computer vision layer: dynamic lung field segmentation and active infection boundary detection.")
+                
+                # Render the neon segmentor overlay image
+                st.image(st.session_state.overlay_bytes, use_container_width=True, caption="Segmented Lung Field (Slate-Teal) & Infection Core (Neon-Red Outline)")
+                
+                # Render the 2D segmentor telemetry card
+                metrics_2d = st.session_state.metrics_2d
+                st.markdown(f"""
+                <div style="background: #0b0e17; border: 1px solid #1e293b; border-radius: 8px; padding: 15px; margin-top: 15px;">
+                    <div style="color: #64748b; font-size: 0.8rem; text-transform: uppercase; font-weight: 500; letter-spacing: 0.5px; margin-bottom: 8px;">2D Computer Vision Metrics</div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                        <div>
+                            <span style="color: #64748b; font-size: 0.85rem;">Infected Area:</span><br>
+                            <strong style="color: #ef4444; font-size: 1.1rem;">{metrics_2d['nodule_area_mm2']:.1f} mm²</strong>
+                        </div>
+                        <div>
+                            <span style="color: #64748b; font-size: 0.85rem;">Lung Infiltration:</span><br>
+                            <strong style="color: #f59e0b; font-size: 1.1rem;">{metrics_2d['lung_ratio']:.2f}%</strong>
+                        </div>
+                        <div>
+                            <span style="color: #64748b; font-size: 0.85rem;">2D Centroid:</span><br>
+                            <strong style="color: #e2e8f0; font-size: 0.95rem;">({int(metrics_2d['centroid_2d'][0])}, {int(metrics_2d['centroid_2d'][1])})</strong>
+                        </div>
+                        <div>
+                            <span style="color: #64748b; font-size: 0.85rem;">Anatomical Lobe:</span><br>
+                            <strong style="color: #06b6d4; font-size: 0.95rem;">{metrics_2d['anatomical_location']}</strong>
+                        </div>
+                    </div>
+                    <div style="border-top: 1px solid #1e293b; margin-top: 12px; padding-top: 8px; font-size: 0.82rem; color: #64748b;">
+                        Reconstruction coordinate mapping: X={metrics_2d['centroid_3d'][0]:.2f}, Y={metrics_2d['centroid_3d'][1]:.2f}, Z={metrics_2d['centroid_3d'][2]:.2f} (r={metrics_2d['nodule_area_pixels']**0.5 * 0.45:.2f}mm)
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+            with col_right:
+                st.markdown("### Interactive 3D Workstation & Pathological Localization")
+                st.caption("Reconstructed 3D volume matching the 2D scan coordinates. Adjust visualization settings to peel:")
+                
+                # Interactive sliders inside column
+                col_style, col_t1, col_t2 = st.columns([1.2, 1, 1])
+                with col_style:
+                    visual_style = st.selectbox(
+                        "3D Aesthetic",
+                        ["Premium Cyber-Glow", "Classic Clinical", "Grad-CAM XAI"],
+                        index=0,
+                        key="viz_style_2d"
+                    )
+                with col_t1:
+                    isomin_ct = st.slider("CT Iso-Surface", 0.05, 0.95, 0.18, step=0.01, key="ct_slider_2d")
+                with col_t2:
+                    isomin_cam = st.slider("Attention Focus", 0.05, 0.95, 0.35, step=0.01, key="cam_slider_2d")
+                    
+                fig_raycast = render_plotly_3d_volume(active_volume, gradcam_heatmap, isomin_ct, isomin_cam, visual_style)
+                st.plotly_chart(fig_raycast, use_container_width=True)
+                
+                st.markdown(f"""
+                <div style="background: rgba(6, 182, 212, 0.05); border-left: 4px solid #06b6d4; border-radius: 8px; padding: 15px; margin-top: 15px; font-size: 0.9rem; color: #cbd5e1;">
+                    <strong>Workstation Telemetry:</strong> 3D volume dynamically morphed and scaled to match uploaded patient scan coordinates. Execution latency: <strong>{latency_ms:.2f} ms</strong>.
+                </div>
+                """, unsafe_allow_html=True)
+        else:
+            # Full-width 3D volume PACS layout
+            st.markdown("### Interactive 3D Workstation & Pathological Localization")
+            st.caption("Volumetric rendering showing mathematically simulated left/right lung contours and bronchial airway trees. Adjust thresholds to peel/focus:")
+            
+            # Interactive threshold sliders for real-time detailed peeling
+            col_style, col_t1, col_t2 = st.columns([1.2, 1, 1])
+            with col_style:
+                visual_style = st.selectbox(
+                    "3D Visualization Aesthetic",
+                    ["Premium Cyber-Glow", "Classic Clinical", "Grad-CAM XAI"],
+                    index=0,
+                    key="viz_style_normal"
+                )
+            with col_t1:
+                isomin_ct = st.slider("CT Iso-Surface Threshold", 0.05, 0.95, 0.18, step=0.01, key="ct_slider_normal")
+            with col_t2:
+                isomin_cam = st.slider("Attention Focus Threshold", 0.05, 0.95, 0.35, step=0.01, key="cam_slider_normal")
+                
+            fig_raycast = render_plotly_3d_volume(active_volume, gradcam_heatmap, isomin_ct, isomin_cam, visual_style)
+            st.plotly_chart(fig_raycast, use_container_width=True)
+            
+            st.markdown(f"""
+            <div style="background: rgba(6, 182, 212, 0.05); border-left: 4px solid #06b6d4; border-radius: 8px; padding: 15px; margin-top: 15px; font-size: 0.9rem; color: #cbd5e1;">
+                <strong>Workstation Telemetry:</strong> Volumetric CT scan models two distinct lung lobes and trachea bifurcation. 
+                Localized starburst infection highlighted under Swin-Transformer Self-Attention layer. Execution latency: <strong>{latency_ms:.2f} ms</strong>.
+            </div>
+            """, unsafe_allow_html=True)
         
     with tab_report:
         col_rep_l, col_rep_r = st.columns([1, 1.2], gap="large")
